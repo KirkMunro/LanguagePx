@@ -63,7 +63,7 @@ namespace LanguagePx
                     ThrowTerminatingError(errorRecord);
                 }
 
-                DslDatabase.SetOnInvokingEventHandler(DslName, KeywordPath, Action);
+                KeywordManager.SetDslKeywordOnInvokingEventHandler(DslName, KeywordPath, Action);
             }
             else if (string.Compare(EventName,"OnInvoked",true) == 0)
             {
@@ -76,7 +76,7 @@ namespace LanguagePx
                     ThrowTerminatingError(errorRecord);
                 }
 
-                DslDatabase.SetOnInvokedEventHandler(DslName, KeywordPath, Action);
+                KeywordManager.SetDslKeywordOnInvokedEventHandler(DslName, KeywordPath, Action);
             }
 
             base.EndProcessing();

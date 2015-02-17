@@ -43,7 +43,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="DslDatabase.cs" />
+    <Compile Include="KeywordManager.cs" />
     <Compile Include="InvokeKeywordCommand.cs" />
     <Compile Include="NewDomainSpecificLanguageCommand.cs" />
     <Compile Include="PowerShellHelper.cs" />

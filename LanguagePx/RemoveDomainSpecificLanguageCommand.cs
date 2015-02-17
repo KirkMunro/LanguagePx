@@ -26,28 +26,23 @@ namespace LanguagePx
 
         protected override void BeginProcessing()
         {
+            // Create the PowerShell helper
             psHelper = new PowerShellHelper(this);
+
+            // Ensure the Keyword Manager is configured to use the appropriate PowerShellHelper instance
+            KeywordManager.PSHelper = psHelper;
+
             base.BeginProcessing();
         }
 
         protected override void EndProcessing()
         {
-            foreach (DynamicKeyword keyword in DslDatabase.GetDslRootKeywords(Name))
-            {
-                if (DynamicKeyword.GetKeyword(keyword.Keyword) != null)
-                {
-                    DynamicKeyword.RemoveKeyword(keyword.Keyword);
-                }
+            // Ensure the Keyword Manager is configured to use the appropriate PowerShellHelper instance
+            KeywordManager.PSHelper = psHelper;
 
-                psHelper.InvokeCommand(
-                    "Remove-Item",
-                    new OrderedDictionary {
-                        { "LiteralPath", string.Format("Alias::{0}", keyword.Keyword) },
-                        { "Force", true },
-                        { "ErrorAction", ActionPreference.Ignore },
-                        { "Confirm", false },
-                        { "WhatIf", false }
-                    });
+            foreach (DynamicKeyword keyword in KeywordManager.GetDslKeywords(Name))
+            {
+                KeywordManager.RemoveKeyword(keyword);
             }
 
             base.EndProcessing();

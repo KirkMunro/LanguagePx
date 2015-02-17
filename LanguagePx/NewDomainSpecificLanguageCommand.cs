@@ -56,8 +56,6 @@ namespace LanguagePx
                 ThrowSyntaxError(Syntax.Ast, "All commands used in a domain-specific language definition must be in one of two formats: '<CommandName> [Name] {...}' or '<Type> [<PropertyName>]'.");
             }
 
-            List<DynamicKeywordProperty> propertyList = new List<DynamicKeywordProperty>();
-
             if (scriptBlockAst.BeginBlock != null)
             {
                 ThrowSyntaxError(scriptBlockAst, "Begin blocks are not supported in domain-specific language definitions.");
@@ -131,13 +129,13 @@ namespace LanguagePx
                         Collection<PSObject> results = psHelper.InvokeCommand(
                             "Get-Alias",
                             new OrderedDictionary {
-                            { "Name", keywordName },
-                            { "Scope", 0 },
-                            { "ErrorAction", ActionPreference.Ignore }
-                        });
-                        if (results.Count > 0)
+                                { "Name", keywordName },
+                                { "Scope", "Script" },
+                                { "ErrorAction", ActionPreference.Ignore }
+                            });
+                        if ((results.Count > 0) && (string.Compare(((AliasInfo)results[0].BaseObject).Definition, "Invoke-Keyword", true) != 0))
                         {
-                            ThrowSyntaxError(commandAst, string.Format("An alias by the name {0} already exists in the current scope. The {1} domain-specific language requires this alias in order to function properly. The domain-specific language cannot be defined until this alias conflict has been removed.", keywordName, Name));
+                            ThrowSyntaxError(commandAst, string.Format("A conflicting alias by the name of {0} already exists in the current scope. The {1} domain-specific language requires this alias in order to function properly. The domain-specific language cannot be defined until this alias conflict has been removed.", keywordName, Name));
                         }
                     }
 
@@ -235,32 +233,44 @@ namespace LanguagePx
                         keyword.Properties.Add(nestedProperty.Name, nestedProperty);
                     }
 
-                    DslDatabase.AddKeyword(Name, keyword, parentKeywordId, keywordPath);
+                    // Use the keyword manager to add the DSL keyword to the keyword repository; this also
+                    // creates an alias for visible keywords if a coresponding alias does not already exist
+                    // in the script scope (for DSLs, visible keywords = root-level keywords)
+                    KeywordManager.AddDslKeyword(Name, keyword, parentKeywordId, keywordPath, Syntax.Module);
 
+                    // Once the keyword is created, if the keyword is at the root of the DSL, and if the DSL
+                    // is being defined inside of a module, export the keyword alias and then remove the
+                    // internal alias that was used to perform the export. This must happen to ensure that
+                    // there are no internal keywords left behind inside the module so that DSL removal
+                    // performed as part of a module OnRemove event can properly remove the keywords that
+                    // this DSL uses.
                     if (parentKeywordId == 0)
                     {
-                        DynamicKeyword.AddKeyword(keyword);
-
                         Collection<PSObject> results = psHelper.InvokeCommandAssertNotNull(
-                            "New-Alias",
+                            "Get-Alias",
                             new OrderedDictionary {
-                                { "Name", keyword.Keyword },
-                                { "Value", "Invoke-Keyword" },
-                                { "PassThru", true },
-                                { "Confirm", false },
-                                { "WhatIf", false }
+                                { "Name", keywordName },
+                                { "Scope", "Script" },
+                                { "ErrorAction", ActionPreference.Stop }
                             });
-
-                        AliasInfo aliasInfo = (AliasInfo)results[0].BaseObject;
-
-                        // If we're invoking this from inside of a module, export the alias so that
-                        // the top-level keyword executes properly.
-                        if (SessionState.Module != null)
+                        AliasInfo aliasInfo = results.Count == 0 ? null : results[0].BaseObject as AliasInfo;
+                        if ((Syntax.Module != null) && (aliasInfo != null))
                         {
                             psHelper.InvokeCommand(
                                 "Export-ModuleMember",
                                 new OrderedDictionary {
-                                    { "Alias", aliasInfo.Name }
+                                    { "Alias", aliasInfo.Name },
+                                    { "ErrorAction", ActionPreference.Stop }
+                                });
+
+                            psHelper.InvokeCommand(
+                                "Remove-Item",
+                                new OrderedDictionary {
+                                    { "LiteralPath", string.Format("Alias::{0}", keywordName) },
+                                    { "Force", true },
+                                    { "Confirm", false },
+                                    { "WhatIf", false },
+                                    { "ErrorAction", ActionPreference.Stop }
                                 });
                         }
                     }
@@ -284,12 +294,20 @@ namespace LanguagePx
 
         protected override void BeginProcessing()
         {
+            // Create the PowerShell helper
             psHelper = new PowerShellHelper(this);
+
+            // Ensure the Keyword Manager is configured to use the appropriate PowerShellHelper instance
+            KeywordManager.PSHelper = psHelper;
+
             base.BeginProcessing();
         }
 
         protected override void EndProcessing()
         {
+            // Ensure the Keyword Manager is configured to use the appropriate PowerShellHelper instance
+            KeywordManager.PSHelper = psHelper;
+
             ScriptBlockAst scriptBlockAst = Syntax.Ast as ScriptBlockAst;
 
             ParseSyntaxTree(scriptBlockAst);

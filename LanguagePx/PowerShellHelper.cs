@@ -67,6 +67,19 @@ namespace LanguagePx
             return InvokeScript(scriptBlock.ToString(), parameters, terminateOnError, invokeInChildScope);
         }
 
+        public Collection<PSObject> InvokeCommand(string commandName, object[] argumentList, bool terminateOnError = false, bool invokeInChildScope = false)
+        {
+            InitializePowerShell();
+
+            ps.AddCommand(commandName, invokeInChildScope);
+            foreach (object argument in argumentList)
+            {
+                ps.AddArgument(argument);
+            }
+
+            return InvokePowerShellWithErrorHandler(terminateOnError);
+        }
+
         public Collection<PSObject> InvokeCommand(string commandName, IDictionary parameters = null, bool terminateOnError = false, bool invokeInChildScope = false)
         {
             InitializePowerShell();

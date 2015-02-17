@@ -1,100 +1,194 @@
 ﻿using System;
 using System.Data;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.Linq;
 using System.Management.Automation;
 using System.Management.Automation.Language;
 
 namespace LanguagePx
 {
-    class DslDatabase
+    class KeywordManager
     {
-        static DataSet dslDb = null;
+        static DataSet keywordDb = null;
+        static string keywordTableName = "Keywords";
+        static string dslDetailsTableName = "DslDetails";
+        static Stack<DynamicKeyword> dslKeywordStack = new Stack<DynamicKeyword>();
 
-        static DataTable GetKeywordTable()
+        public static PowerShellHelper PSHelper { get; set; }
+
+        static void InitializeDb()
         {
-            if (dslDb == null)
+            if (keywordDb == null)
             {
-                dslDb = new DataSet("DomainSpecificLanguages");
-                DataTable dslTable = dslDb.Tables.Add("Keywords");
+                keywordDb = new DataSet("KeywordDatabase");
 
-                dslTable.PrimaryKey = new DataColumn[] {
-                    dslTable.Columns.Add("KeywordId", typeof(int))
+                DataTable table = keywordDb.Tables.Add(keywordTableName);
+                table.PrimaryKey = new DataColumn[] {
+                    table.Columns.Add("KeywordId", typeof(int))
                 };
-                dslTable.Columns.Add("DslName", typeof(string));
-                dslTable.Columns.Add("Keyword", typeof(DynamicKeyword));
-                dslTable.Columns.Add("Path", typeof(string));
-                dslTable.Columns.Add("ParentKeywordId", typeof(int));
-                dslTable.Columns.Add("OnInvoking", typeof(ScriptBlock));
-                dslTable.Columns.Add("OnInvoked", typeof(ScriptBlock));
+                table.Columns.Add("Keyword", typeof(DynamicKeyword));
+                table.Columns.Add("Module", typeof(string));
+                table.Columns.Add("Visible", typeof(bool));
+                table.Columns.Add("OnInvoking", typeof(ScriptBlock));
+                table.Columns.Add("OnInvoked", typeof(ScriptBlock));
 
-                return dslTable;
+                table = keywordDb.Tables.Add(dslDetailsTableName);
+                table.PrimaryKey = new DataColumn[] {
+                    table.Columns.Add("KeywordId", typeof(int))
+                };
+                table.Columns.Add("DslName", typeof(string));
+                table.Columns.Add("Path", typeof(string));
+                table.Columns.Add("ParentKeywordId", typeof(int));
+            }
+        }
+
+        static DataTable GetTable(string name)
+        {
+            InitializeDb();
+            return keywordDb.Tables[name];
+        }
+
+        static List<DynamicKeyword> FindAllKeywords()
+        {
+            return DynamicKeyword.GetKeyword();
+        }
+
+        static DynamicKeyword FindKeyword(DynamicKeyword keyword)
+        {
+            return DynamicKeyword.GetKeyword(keyword.Keyword);
+        }
+
+        static void RegisterKeyword(DynamicKeyword keyword)
+        {
+            if (FindKeyword(keyword) != keyword)
+            {
+                DynamicKeyword.AddKeyword(keyword);
             }
 
-            return dslDb.Tables["Keywords"];
+            Collection<PSObject> results = PSHelper.InvokeCommand(
+                "Get-Alias",
+                new OrderedDictionary {
+                    { "Name", keyword.Keyword },
+                    { "Scope", "Script" },
+                    { "ErrorAction", ActionPreference.Ignore }
+                });
+            AliasInfo aliasInfo = null;
+            if ((results != null) && (results.Count == 1))
+            {
+                aliasInfo = (AliasInfo)results[0].BaseObject;
+            }
+            if ((aliasInfo == null) || (string.Compare(aliasInfo.Definition, "Invoke-Keyword", true) != 0))
+            {
+                PSHelper.InvokeCommand(
+                    "Set-Alias",
+                    new OrderedDictionary {
+                        { "Name", keyword.Keyword },
+                        { "Value", "Invoke-Keyword" },
+                        { "Scope", "Script" },
+                        { "Description", "This alias is automatically managed by the LanguagePx module." },
+                        { "Force", true },
+                        { "Confirm", false },
+                        { "WhatIf", false },
+                        { "ErrorAction", ActionPreference.Stop }
+                    });
+            }
         }
 
-        static object GetKeywordProperty(int keywordId, string propertyName)
+        static void UnregisterKeyword(DynamicKeyword keyword)
         {
-            DataTable dslTable = GetKeywordTable();
+            if (FindKeyword(keyword) == keyword)
+            {
+                DynamicKeyword.RemoveKeyword(keyword.Keyword);
+            }
 
-            DataRow row = dslTable.Rows.Find(keywordId);
-
-            object dbPropertyValue = row[propertyName];
-
-            return dbPropertyValue is DBNull ? null : dbPropertyValue;
+            Collection<PSObject> results = PSHelper.InvokeCommandAssertNotNull(
+                "Test-Path",
+                new OrderedDictionary {
+                    { "LiteralPath", string.Format("Alias::{0}", keyword.Keyword) },
+                    { "ErrorAction", ActionPreference.Ignore }
+                });
+            if ((results.Count == 1) && ((bool)results[0].BaseObject))
+            {
+                PSHelper.InvokeCommand(
+                    "Remove-Item",
+                    new OrderedDictionary {
+                        { "LiteralPath", string.Format("Alias::{0}", keyword.Keyword) },
+                        { "Force", true },
+                        { "Confirm", false },
+                        { "WhatIf", false },
+                        { "ErrorAction", ActionPreference.Stop }
+                    });
+            }
         }
 
-        static object GetKeywordProperty(DynamicKeyword keyword, string propertyName)
+        static void AddKeyword(DynamicKeyword keyword, PSModuleInfo module, bool visible)
         {
-            return GetKeywordProperty(keyword.GetHashCode(), propertyName);
-        }
-
-        public static void AddKeyword(string dslName, DynamicKeyword keyword, int parentKeywordId, string keywordPath)
-        {
-            DataTable dslTable = GetKeywordTable();
-
-            DataRow row = dslTable.NewRow();
+            DataTable table = GetTable(keywordTableName);
+            DataRow row = table.NewRow();
             row["KeywordId"] = keyword.GetHashCode();
-            row["DslName"] = dslName;
             row["Keyword"] = keyword;
-            row["Path"] = keywordPath;
-            row["ParentKeywordId"] = parentKeywordId;
+            row["Module"] = module == null ? null : module.Name;
+            row["Visible"] = visible;
             row["OnInvoking"] = null;
             row["OnInvoked"] = null;
-            dslTable.Rows.Add(row);
+            table.Rows.Add(row);
+
+            if (visible)
+            {
+                RegisterKeyword(keyword);
+            }
         }
 
-        public static List<DynamicKeyword> GetChildKeywords(DynamicKeyword keyword)
+        public static void AddStandaloneKeyword(DynamicKeyword keyword, PSModuleInfo module)
         {
-            return GetKeywordTable()
+            AddKeyword(keyword, module, true);
+        }
+
+        public static void AddDslKeyword(string dslName, DynamicKeyword keyword, int parentKeywordId, string keywordPath, PSModuleInfo module)
+        {
+            AddKeyword(keyword, module, dslKeywordStack.Count == 0 && parentKeywordId == 0);
+
+            DataTable table = GetTable(dslDetailsTableName);
+            DataRow row = table.NewRow();
+            row["KeywordId"] = keyword.GetHashCode();
+            row["DslName"] = dslName;
+            row["Path"] = keywordPath;
+            row["ParentKeywordId"] = parentKeywordId;
+            table.Rows.Add(row);
+        }
+
+        public static List<DynamicKeyword> GetStandaloneKeywords()
+        {
+            DataTable dslDetailsTable = GetTable(dslDetailsTableName);
+            return GetTable(keywordTableName)
                 .AsEnumerable()
-                .Where(x => (int)x["ParentKeywordId"] == keyword.GetHashCode())
+                .Where(x => dslDetailsTable.Rows.Find((int)x["KeywordId"]) == null)
                 .Select(x => (DynamicKeyword)x["Keyword"])
                 .ToList();
         }
 
-        public static string GetPath(DynamicKeyword keyword)
+        public static DynamicKeyword GetStandaloneKeyword(string name)
         {
-            return (string)GetKeywordProperty(keyword, "Path");
+            return GetStandaloneKeywords()
+                .FirstOrDefault(x => string.Compare(x.Keyword, name, true) == 0);
         }
 
-        public static List<DynamicKeyword> GetDslRootKeywords(string dslName)
+        public static List<DynamicKeyword> GetDslKeywords(string dslName)
         {
-            DataTable dslTable = GetKeywordTable();
-
-            return dslTable
+            return GetTable(dslDetailsTableName)
                 .AsEnumerable()
-                .Where(x => ((int)x["ParentKeywordId"] == 0) && (string.Compare((string)x["DslName"], dslName, true) == 0))
-                .Select(x => (DynamicKeyword)x["Keyword"])
+                .Where(x => string.Compare((string)x["DslName"], dslName, true) == 0)
+                .Select(x => GetKeyword((int)x["KeywordId"]))
                 .ToList();
         }
 
-        public static DynamicKeyword GetKeyword(string dslName, string keywordPath)
+        public static DynamicKeyword GetDslKeyword(string dslName, string keywordPath)
         {
-            DataTable dslTable = GetKeywordTable();
+            DataTable table = GetTable(dslDetailsTableName);
 
-            DataRow row = dslTable
+            DataRow row = table
                 .AsEnumerable()
                 .FirstOrDefault(x => (string.Compare((string)x["DslName"], dslName, true) == 0) && (string.Compare((string)x["Path"], keywordPath, true) == 0));
 
@@ -103,52 +197,343 @@ namespace LanguagePx
                 return null;
             }
 
-            return (DynamicKeyword)row["Keyword"];
+            return GetKeyword((int)row["KeywordId"]);
         }
 
-        static ScriptBlock GetEventHandler(DynamicKeyword keyword, string eventName)
+        public static List<DynamicKeyword> GetDslRootKeywords(string dslName = null)
         {
-            return (ScriptBlock)GetKeywordProperty(keyword, eventName);
+            return GetTable(dslDetailsTableName)
+                .AsEnumerable()
+                .Where(x => ((int)x["ParentKeywordId"] == 0) && (dslName == null ? true : string.Compare((string)x["DslName"], dslName, true) == 0))
+                .Select(x => GetKeyword((int)x["KeywordId"]))
+                .ToList();
+        }
+
+        public static DynamicKeyword GetDslRootKeyword(string name)
+        {
+            DataRow row = GetTable(dslDetailsTableName)
+                .AsEnumerable()
+                .FirstOrDefault(x => ((int)x["ParentKeywordId"] == 0) && (string.Compare(((DynamicKeyword)x["Keyword"]).Keyword, name, true) == 0));
+
+            if (row == null)
+            {
+                return null;
+            }
+
+            return GetKeyword((int)row["KeywordId"]);
+        }
+
+        public static void RemoveKeyword(DynamicKeyword keyword)
+        {
+            DataTable dslDetailsTable = GetTable(dslDetailsTableName);
+            DataTable keywordsTable = GetTable(keywordTableName);
+            DataRow row = dslDetailsTable.Rows.Find(keyword.GetHashCode());
+            if (row != null)
+            {
+                dslDetailsTable.Rows.Remove(row);
+            }
+            row = keywordsTable.Rows.Find(keyword.GetHashCode());
+            if (row != null)
+            {
+                keywordsTable.Rows.Remove(row);
+            }
+            UnregisterKeyword(keyword);
+        }
+
+        public static void RemoveDsl(string name)
+        {
+            foreach (DynamicKeyword keyword in GetDslKeywords(name))
+            {
+                RemoveKeyword(keyword);
+            }
+        }
+
+        public static void RemoveStandaloneKeyword(string name)
+        {
+            DynamicKeyword keyword = GetStandaloneKeyword(name);
+            if (keyword != null)
+            {
+                RemoveKeyword(keyword);
+            }
+        }
+
+        static object GetKeywordProperty(string tableName, int keywordId, string propertyName)
+        {
+            DataTable table = GetTable(tableName);
+
+            DataRow row = table.Rows.Find(keywordId);
+            if (row == null)
+            {
+                throw new RowNotInTableException(string.Format("The keyword with id {0} was not found in the keyword database.", keywordId));
+            }
+
+            object propertyValue = row[propertyName];
+
+            return propertyValue is DBNull ? null : propertyValue;
+        }
+
+        static object GetKeywordProperty(string tableName, DynamicKeyword keyword, string propertyName)
+        {
+            return GetKeywordProperty(tableName, keyword.GetHashCode(), propertyName);
+        }
+
+        static DynamicKeyword GetKeyword(int keywordId)
+        {
+            return (DynamicKeyword)GetKeywordProperty(keywordTableName, keywordId, "Keyword");
+        }
+
+        static string GetModule(DynamicKeyword keyword)
+        {
+            return (string)GetKeywordProperty(keywordTableName, keyword, "Module");
+        }
+
+        public static bool IsVisible(DynamicKeyword keyword)
+        {
+            return (bool)GetKeywordProperty(keywordTableName, keyword, "Visible");
         }
 
         public static ScriptBlock GetOnInvokingEventHandler(DynamicKeyword keyword)
         {
-            return GetEventHandler(keyword, "OnInvoking");
+            return (ScriptBlock)GetKeywordProperty(keywordTableName, keyword, "OnInvoking");
         }
 
         public static ScriptBlock GetOnInvokedEventHandler(DynamicKeyword keyword)
         {
-            return GetEventHandler(keyword, "OnInvoked");
+            return (ScriptBlock)GetKeywordProperty(keywordTableName, keyword, "OnInvoked");
         }
 
-        static void SetEventHandler(string dslName, string keywordPath, string eventName, ScriptBlock eventHandler)
+        public static string GetDslName(DynamicKeyword keyword)
         {
-            DynamicKeyword keyword = GetKeyword(dslName, keywordPath);
+            return (string)GetKeywordProperty(dslDetailsTableName, keyword, "DslName");
+        }
 
-            if (keyword == null)
-            {
-                return;
-            }
+        public static string GetPath(DynamicKeyword keyword)
+        {
+            return (string)GetKeywordProperty(dslDetailsTableName, keyword, "Path");
+        }
 
-            DataTable dataTable = GetKeywordTable();
+        public static int GetParentId(DynamicKeyword keyword)
+        {
+            return (int)GetKeywordProperty(dslDetailsTableName, keyword, "ParentKeywordId");
+        }
 
-            DataRow row = dataTable.Rows.Find(keyword.GetHashCode());
+        public static DynamicKeyword GetParentKeyword(DynamicKeyword keyword)
+        {
+            return GetKeyword(GetParentId(keyword));
+        }
+
+        public static List<DynamicKeyword> GetChildKeywords(DynamicKeyword keyword)
+        {
+            return GetTable(dslDetailsTableName)
+                .AsEnumerable()
+                .Where(x => (int)x["ParentKeywordId"] == keyword.GetHashCode())
+                .Select(x => GetKeyword((int)x["KeywordId"]))
+                .ToList();
+        }
+
+        public static List<DynamicKeyword> GetSiblingKeywords(DynamicKeyword keyword)
+        {
+            int parentKeywordId = GetParentId(keyword);
+            return GetTable(dslDetailsTableName)
+                .AsEnumerable()
+                .Where(x => (int)x["ParentKeywordId"] == parentKeywordId)
+                .Select(x => GetKeyword((int)x["KeywordId"]))
+                .ToList();
+        }
+
+        public static bool IsDslRootKeyword(DynamicKeyword keyword)
+        {
+            DataRow row = GetTable(dslDetailsTableName).Rows.Find(keyword.GetHashCode());
             if (row == null)
             {
-                return;
+                return false;
             }
 
-            row[eventName] = eventHandler;
+            return (int)row["ParentKeywordId"] == 0;
         }
 
-        public static void SetOnInvokedEventHandler(string dslName, string keywordPath, ScriptBlock eventHandler)
+        public static bool IsDslKeyword(DynamicKeyword keyword)
         {
-            SetEventHandler(dslName, keywordPath, "OnInvoked", eventHandler);
+            return GetTable(dslDetailsTableName).Rows.Find(keyword.GetHashCode()) != null;
         }
 
-        public static void SetOnInvokingEventHandler(string dslName, string keywordPath, ScriptBlock eventHandler)
+        public static bool IsStandaloneKeyword(DynamicKeyword keyword)
         {
-            SetEventHandler(dslName, keywordPath, "OnInvoking", eventHandler);
+            return !IsDslKeyword(keyword);
+        }
+
+        public static void PushDslKeyword(DynamicKeyword keyword)
+        {
+            // Throw if the keyword being pushed is standalone
+            if (IsStandaloneKeyword(keyword))
+            {
+                throw new InvalidOperationException(string.Format("Invalid operation: pushing a standalone keyword ({0}) onto the dynamic keyword stack. This should never happen.", keyword.Keyword));
+            }
+
+            // Push the DSL keyword onto the stack
+            dslKeywordStack.Push(keyword);
+
+            // Hide all DSL keywords that are siblings to the current keyword
+            foreach (DynamicKeyword siblingKeyword in KeywordManager.GetSiblingKeywords(keyword))
+            {
+                HideKeyword(siblingKeyword);
+            }
+
+            // Show all DSL child keywords
+            foreach (DynamicKeyword childKeyword in KeywordManager.GetChildKeywords(keyword))
+            {
+                ShowKeyword(childKeyword);
+            }
+        }
+
+        public static void PopDslKeyword()
+        {
+            // Throw if there are no DSL keywords on the stack
+            if (dslKeywordStack.Count == 0)
+            {
+                throw new InvalidOperationException("Invalid operation: popping a DSL keyword off of dynamic keyword stack when the dynamic keyword stack is empty. This should never happen.");
+            }
+
+            // Pop the DSL keyword off of the stack
+            DynamicKeyword keyword = dslKeywordStack.Pop();
+
+            // Hide all DSL child keywords
+            foreach (DynamicKeyword childKeyword in GetChildKeywords(keyword))
+            {
+                HideKeyword(childKeyword);
+            }
+
+            // Show all DSL keywords that are siblings to the current keyword
+            foreach (DynamicKeyword siblingKeyword in GetSiblingKeywords(keyword))
+            {
+                ShowKeyword(siblingKeyword);
+            }
+
+            // Re-register any standalone keywords that do not have a conflicting keyword name already registered
+            foreach (DynamicKeyword standaloneKeyword in GetStandaloneKeywords())
+            {
+                if (FindKeyword(standaloneKeyword) == null)
+                {
+                    RegisterKeyword(standaloneKeyword);
+                }
+            }
+        }
+
+        public static bool InsideDsl()
+        {
+            return dslKeywordStack.Count > 0;
+        }
+
+        public static string GetCurrentDslName()
+        {
+            if (!InsideDsl())
+            {
+                return null;
+            }
+
+            return GetDslName(dslKeywordStack.Peek());
+        }
+
+        public static bool IsChildKeyword(DynamicKeyword keyword)
+        {
+            if (IsStandaloneKeyword(keyword))
+            {
+                return false;
+            }
+
+            if (!InsideDsl())
+            {
+                return false;
+            }
+
+            int parentId = GetParentId(keyword);
+
+            return parentId == dslKeywordStack.Peek().GetHashCode();
+        }
+
+        public static List<DynamicKeyword> GetVisibleKeywords(string name = null)
+        {
+            return GetTable(keywordTableName)
+                .AsEnumerable()
+                .Where(x => (bool)x["Visible"] && (name == null ? true : string.Compare(((DynamicKeyword)x["Keyword"]).Keyword, name, true) == 0))
+                .Select(x => (DynamicKeyword)x["Keyword"])
+                .ToList();
+        }
+
+        public static DynamicKeyword LoadVisibleKeyword(string name)
+        {
+            List<DynamicKeyword> visibleKeywords = GetVisibleKeywords(name);
+            if (visibleKeywords.Count == 0)
+            {
+                throw new InvalidOperationException(string.Format("Unable to find a keyword with name '{0}' in the current scope.", name));
+            }
+
+            if (visibleKeywords.Count > 1)
+            {
+                foreach (DynamicKeyword visibleKeyword in visibleKeywords)
+                {
+                    if (IsDslKeyword(visibleKeyword))
+                    {
+                        RegisterKeyword(visibleKeyword);
+                        return visibleKeyword;
+                    }
+                }
+
+                throw new InvalidPowerShellStateException(string.Format("Invalid keyword state: multiple standalone keywords with the name '{0}' detected. This should never happen.", name));
+            }
+
+            RegisterKeyword(visibleKeywords[0]);
+            return visibleKeywords[0];
+        }
+
+        static void SetKeywordProperty(DynamicKeyword keyword, string propertyName, object value)
+        {
+            DataTable table = GetTable(keywordTableName);
+            DataRow row = table.Rows.Find(keyword.GetHashCode());
+            if (row == null)
+            {
+                throw new RowNotInTableException(string.Format("The keyword with id {0} was not found in the keyword database.", keyword.GetHashCode()));
+            }
+
+            row[propertyName] = value;
+        }
+
+        public static void ShowKeyword(DynamicKeyword keyword)
+        {
+            SetKeywordProperty(keyword, "Visible", true);
+            RegisterKeyword(keyword);
+        }
+
+        public static void HideKeyword(DynamicKeyword keyword)
+        {
+            if (IsStandaloneKeyword(keyword))
+            {
+                throw new InvalidOperationException(string.Format("Invalid operation: attempt to hide standalone keyword '{0}'.", keyword.Keyword));
+            }
+
+            SetKeywordProperty(keyword, "Visible", false);
+            UnregisterKeyword(keyword);
+        }
+
+        static void SetDslKeywordEventHandler(string dslName, string keywordPath, string eventName, ScriptBlock eventHandler)
+        {
+            DynamicKeyword keyword = GetDslKeyword(dslName, keywordPath);
+            if (keyword == null)
+            {
+                throw new RowNotInTableException(string.Format("The keyword with id {0} was not found in the keyword database.", keyword.GetHashCode()));
+            }
+
+            SetKeywordProperty(keyword, eventName, eventHandler);
+        }
+
+        public static void SetDslKeywordOnInvokedEventHandler(string dslName, string keywordPath, ScriptBlock eventHandler)
+        {
+            SetDslKeywordEventHandler(dslName, keywordPath, "OnInvoked", eventHandler);
+        }
+
+        public static void SetDslKeywordOnInvokingEventHandler(string dslName, string keywordPath, ScriptBlock eventHandler)
+        {
+            SetDslKeywordEventHandler(dslName, keywordPath, "OnInvoking", eventHandler);
         }
     }
 }
