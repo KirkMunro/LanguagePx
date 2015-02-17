@@ -77,7 +77,7 @@ namespace LanguagePx
             AliasInfo aliasInfo = null;
             if ((results != null) && (results.Count == 1))
             {
-                aliasInfo = (AliasInfo)results[0].BaseObject;
+                aliasInfo = results[0].BaseObject as AliasInfo;
             }
             if ((aliasInfo == null) || (string.Compare(aliasInfo.Definition, "Invoke-Keyword", true) != 0))
             {
@@ -103,24 +103,38 @@ namespace LanguagePx
                 DynamicKeyword.RemoveKeyword(keyword.Keyword);
             }
 
-            Collection<PSObject> results = PSHelper.InvokeCommandAssertNotNull(
-                "Test-Path",
-                new OrderedDictionary {
-                    { "LiteralPath", string.Format("Alias::{0}", keyword.Keyword) },
-                    { "ErrorAction", ActionPreference.Ignore }
-                });
-            if ((results.Count == 1) && ((bool)results[0].BaseObject))
+            // Remove all aliases for the current keyword that reference the Invoke-Keyword
+            // command (we need to remove multiple if the module author defined the aliases
+            // that are automatically defined themselves; otherwise the module will not
+            // auto-reload properly once it is unloaded because of the crumbs that are left
+            // behind)
+            AliasInfo aliasInfo = null;
+            do
             {
-                PSHelper.InvokeCommand(
-                    "Remove-Item",
+                aliasInfo = null;
+                Collection<PSObject> results = PSHelper.InvokeCommand(
+                    "Get-Alias",
                     new OrderedDictionary {
-                        { "LiteralPath", string.Format("Alias::{0}", keyword.Keyword) },
-                        { "Force", true },
-                        { "Confirm", false },
-                        { "WhatIf", false },
-                        { "ErrorAction", ActionPreference.Stop }
+                        { "Name", keyword.Keyword },
+                        { "ErrorAction", ActionPreference.Ignore }
                     });
-            }
+                if ((results != null) && (results.Count == 1))
+                {
+                    aliasInfo = results[0].BaseObject as AliasInfo;
+                }
+                if ((aliasInfo != null) && (string.Compare(aliasInfo.Definition, "Invoke-Keyword", true) == 0))
+                {
+                    PSHelper.InvokeCommand(
+                        "Remove-Item",
+                        new OrderedDictionary {
+                            { "LiteralPath", string.Format("Alias::{0}", keyword.Keyword) },
+                            { "Force", true },
+                            { "Confirm", false },
+                            { "WhatIf", false },
+                            { "ErrorAction", ActionPreference.Stop }
+                        });
+                }
+            } while ((aliasInfo != null) && (string.Compare(aliasInfo.Definition, "Invoke-Keyword", true) == 0));
         }
 
         static void AddKeyword(DynamicKeyword keyword, PSModuleInfo module, bool visible)
