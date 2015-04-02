@@ -8,10 +8,10 @@ namespace LanguagePx
 {
     [Cmdlet(
         VerbsLifecycle.Register,
-        "KeywordEvent"
+        "DslKeywordEvent"
     )]
     [OutputType(typeof(void))]
-    public class RegisterKeywordEvent : PSCmdlet
+    public class RegisterDslKeywordEventCommand : PSCmdlet
     {
         [Parameter(
             Position = 0,

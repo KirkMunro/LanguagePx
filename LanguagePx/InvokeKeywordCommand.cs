@@ -22,7 +22,8 @@ namespace LanguagePx
             Position = 0,
             HelpMessage = "The parameters that PowerShell passes in when invoking a keyword handler.",
             ParameterSetName = "Internal",
-            ValueFromRemainingArguments = true
+            ValueFromRemainingArguments = true,
+            DontShow = true
         )]
         [Alias("Args")]
         public object[] ArgumentList;
@@ -37,7 +38,7 @@ namespace LanguagePx
 
         [Parameter(
             Mandatory = true,
-            HelpMessage = "The name associated with the keyword invocation. If name is not required, this string will be empty",
+            HelpMessage = "The name associated with the keyword invocation. If name is not required, this string will be empty.",
             ParameterSetName = "Keyword"
         )]
         [AllowEmptyString()]

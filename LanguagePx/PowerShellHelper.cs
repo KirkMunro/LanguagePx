@@ -97,7 +97,7 @@ namespace LanguagePx
         {
             Collection<PSObject> result = InvokeCommand(commandName, parameters, terminateOnError, invokeInChildScope);
 
-            if (result == null)
+            if ((result == null) || (result.Count == 0))
             {
                 ErrorRecord errorRecord = new ErrorRecord(
                     new Exception(string.Format("Command {0} was expected to return a value. It returned null.", commandName)),
