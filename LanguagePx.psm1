@@ -27,3 +27,14 @@ Invoke-Snippet -Name Module.Initialize
 . $PSModuleRoot\scripts\Export-BinaryModule.ps1
 
 #endregion
+
+<#
+Possibilities:
+1. New-Keyword cmdlet.
+2. Remove-Keyword cmdlet.
+3. Unregister-KeywordEvent cmdlet.
+4. ShouldProcess support in all cmdlets.
+5. Get-Keyword cmdlet.
+6. Get-DomainSpecificLanguage cmdlet.
+7. PassThru parameter support in New-* cmdlets that invokes Get-* cmdlets internally.
+#>
