@@ -17,7 +17,7 @@ limitations under the License.
 #############################################################################>
 
 # Export the cmdlets that are defined in the nested module
-Export-ModuleMember -Cmdlet Invoke-Keyword,New-DomainSpecificLanguage,Register-KeywordEvent,Remove-DomainSpecificLanguage
+Export-ModuleMember -Cmdlet Invoke-Keyword,New-DomainSpecificLanguage,Register-DslKeywordEvent,Remove-DomainSpecificLanguage
 
 # Define aliases for cmdlets exported from the nested module
 foreach ($alias in 'dsl','dsv') {

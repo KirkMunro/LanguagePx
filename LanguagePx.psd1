@@ -19,7 +19,7 @@ limitations under the License.
 @{
       ModuleToProcess = 'LanguagePx.psm1'
 
-        ModuleVersion = '0.9.0.0'
+        ModuleVersion = '0.9.0.1'
 
                  GUID = '49c5d110-a472-4aea-aa0e-7b4ca012e60f'
 
