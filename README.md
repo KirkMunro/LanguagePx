@@ -39,6 +39,9 @@ package management. If you're curious to find out more, you should read this:
 Note that these commands require that you have the PowerShellGet module installed
 on the system where they are invoked.
 
+NOTE: COMING SOON (PowerShellGet support will be added once LanguagePx has a stable
+release and is no longer purely experimental)
+
 ```powershell
 # If you don’t have LanguagePx installed already and you want to install it for all
 # all users (recommended, requires elevation)
@@ -60,10 +63,12 @@ unless you want it to take longer), and invoke one of the following commands:
 ```powershell
 # If you want to install LanguagePx for all users or update a version already installed
 # (recommended, requires elevation for new install for all users)
-& ([scriptblock]::Create((iwr -uri http://tinyurl.com/Install-GitHubHostedModule).Content)) -ModuleName LanguagePx,SnippetPx
+& ([scriptblock]::Create((iwr -uri http://tinyurl.com/Install-GitHubHostedModule).Content)) -ModuleName SnippetPx
+& ([scriptblock]::Create((iwr -uri http://tinyurl.com/Install-GitHubHostedModule).Content)) -ModuleName LanguagePx -Branch master
 
 # If you want to install LanguagePx for the current user
-& ([scriptblock]::Create((iwr -uri http://tinyurl.com/Install-GitHubHostedModule).Content)) -ModuleName LanguagePx,SnippetPx -Scope CurrentUser
+& ([scriptblock]::Create((iwr -uri http://tinyurl.com/Install-GitHubHostedModule).Content)) -ModuleName SnippetPx -Scope CurrentUser
+& ([scriptblock]::Create((iwr -uri http://tinyurl.com/Install-GitHubHostedModule).Content)) -ModuleName LanguagePx -Scope CurrentUser -Branch master
 ```
 
 ### Using the LanguagePx module
